@@ -2,28 +2,33 @@
 
 ## Purpose
 
-`trysac-csv-profiler` is a small, dependency-free Python library: Profile a CSV or XLSX sheet: inferred types, nulls, duplicates, ranges, top values and warnings, as JSON or a script-free self-contained HTML page
+`trysac-csv-profiler` (import name `csv_profiler`) reads a CSV, TSV, TXT or XLSX file into a table of strings and profiles each column: inferred type, nulls, duplicates, numeric ranges, top values and warnings. Results are rendered as JSON or as one self-contained HTML page.
 
 ## Shape
 
 ```text
-caller code --> csv_profiler (public API in __init__.py)
-                    |
-                    +-- pure functions, no I/O, no global state
+caller / CLI (__main__.py)
+        |
+        v
+reader.py   read_table: format detection, size limits, delimiter sniffing, XLSX guard
+        |  Table(columns, rows, ragged_rows)
+        v
+profiling.py   profile: type inference, statistics, warnings, duplicate rows
+        |  Profile
+        v
+render.py   render_json, render_html
+
+errors.py   ProfileError, ErrorCode, clip (used by all modules)
+__init__.py public re-exports listed in __all__
 ```
 
-- **Public API**: the names listed in `__all__` of `src/csv_profiler/__init__.py`. Anything else is
-  internal and may change without a major version.
-- **Errors**: invalid input raises built-in exceptions (`ValueError`, `TypeError`) with a clear
-  message; the library never prints or exits.
-- **Side effects**: none. If a feature needs I/O, isolate it in its own module behind a small
-  interface and record the choice in an ADR.
+- **Public API**: the names listed in `__all__` of `src/csv_profiler/__init__.py`. Anything else is internal.
+- **Errors**: input problems raise `ProfileError` with a stable `code`. Limit or delimiter misuse raises `ValueError`. File access problems raise `OSError`.
+- **Side effects**: the library reads files only through `read_table`. It does not write files, use the network, or change global state. The CLI writes the report to stdout or to the file given with `-o`.
+- **Logging**: a logger named `csv_profiler` gets a `NullHandler` and is never configured by the library.
 
-## Quality contract
+## Module notes
 
-`scripts/check.py` is the single definition of the gates; `fabrica.json` tells the factory and CI
-how to run it. See [TESTING.md](TESTING.md).
-
-## Decisions
-
-Architecture decisions are recorded in [decisions/](decisions/) as numbered ADRs.
+- `reader.py` uses the `csv` module for CSV and `zipfile` plus `openpyxl` (imported with `importlib`) for XLSX. Every XLSX member is read in 64 KiB chunks against `max_bytes`.
+- `profiling.py` infers types from regular expressions and `date` or `datetime` parsing. A type is chosen when at least 95 percent of non-null values conform.
+- `render.py` escapes every value with `html.escape(quote=True)`.
